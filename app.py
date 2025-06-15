@@ -177,8 +177,8 @@ def plot_metric_with_overlay(workout_df, metric, overlay):
     ax.set_ylabel(metric, color='white')
     ax.set_xlabel("Time (s)", color='white')
 
-    title = workout_df.get("class_title", ["Workout"])[0]
-    instructor = workout_df.get("instructor", ["Unknown"])[0]
+    title = workout_df["class_title"].fillna("Workout").iloc[0] if "class_title" in workout_df.columns else "Workout"
+    instructor = workout_df["instructor"].fillna("Unknown").iloc[0] if "instructor" in workout_df.columns else "Unknown"
     main_title = f"{title} — {instructor}"
 
     raw_start = workout_df.get("start_time", [None])[0]
@@ -191,7 +191,7 @@ def plot_metric_with_overlay(workout_df, metric, overlay):
     else:
         subtitle = f"{username}"
 
-    ax.set_title(f"{main_title}\n{subtitle} — {metric} with {overlay.capitalize()} Overlay", loc="left")
+    ax.set_title(f"{main_title}\n{metric} with {overlay.capitalize()} Overlay", loc="left")
 
     # --- Final layout tweaks
     ax.legend().remove()
@@ -244,8 +244,9 @@ if st.session_state.workout_df is not None:
 
     fig = plot_metric_with_overlay(st.session_state.workout_df, metric, overlay)
     st.pyplot(fig)
+
     # Generate and show shareable ride card
-    st.subheader("📸 Shareable Ride Card")
-    share_card = generate_share_card(st.session_state.workout_df)
-    st.image(share_card, caption="Shareable Ride Card", use_container_width=True)
+    #st.subheader("📸 Shareable Ride Card")
+    #share_card = generate_share_card(st.session_state.workout_df)
+    #st.image(share_card, caption="Shareable Ride Card", use_container_width=True)
 
