@@ -9,8 +9,20 @@ import textwrap
 import json
 
 from matplotlib.patches import Rectangle
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 from io import BytesIO
+
+
+def get_power_zones(ftp):
+    return {
+        "Zone 1": (0, 0.55 * ftp),
+        "Zone 2": (0.56 * ftp, 0.75 * ftp),
+        "Zone 3": (0.76 * ftp, 0.90 * ftp),
+        "Zone 4": (0.91 * ftp, 1.05 * ftp),
+        "Zone 5": (1.06 * ftp, 1.20 * ftp),
+        "Zone 6": (1.21 * ftp, 1.50 * ftp),
+        "Zone 7": (1.51 * ftp, 10 * ftp),
+    }
 
 
 def get_ride_id(workout_id, s):
@@ -201,37 +213,77 @@ def get_complete_workout(workout_id, ride_id, s):
     complete_df = pd.concat([workout_df, ride_metrics], axis=1)
     return complete_df
 
+def generate_share_card(workout_df):
+    # Set up base image
+    card_width, card_height = 1600, 900
+    card = Image.new("RGB", (card_width, card_height), "white")
+    draw = ImageDraw.Draw(card)
 
+    # Plot the chart
+    fig, ax = plt.subplots(figsize=(14, 4))
+    sns.lineplot(data=workout_df, x="time (s)", y="Output (watts)", ax=ax, color="black", label="Your Output")
 
-def generate_shareable_card(workout_df):
-    fig, ax = plt.subplots(figsize=(8, 4), dpi=150)
-    fig.patch.set_facecolor('#1c1e26')  # Dark background
+    # Zone shading
+    power_zones = get_power_zones(config.FTP)
+    zone_colours = {
+        "Zone 1": "#E0F7FA",
+        "Zone 2": "#B2EBF2",
+        "Zone 3": "#4DD0E1",
+        "Zone 4": "#26C6DA",
+        "Zone 5": "#00BCD4",
+        "Zone 6": "#00ACC1",
+        "Zone 7": "#0097A7"
+    }
 
-    # Output plot
-    ax.plot(workout_df["time (s)"], workout_df["Output (watts)"], color="#E91E63", linewidth=1.5)
-    ax.set_facecolor('#2d2f3a')
-    ax.set_xlim(0, workout_df["time (s)"].max())
-    ax.set_ylim(0, workout_df["Output (watts)"].max() * 1.1)
-    ax.axis('off')
+    if "target_zone" in workout_df.columns:
+        for zone, (low, high) in power_zones.items():
+            mask = workout_df["target_zone"] == zone
+            ax.fill_between(workout_df["time (s)"], low, high, where=mask, 
+                            color=zone_colours.get(zone, "grey"), alpha=0.3)
 
-    # Overlay text elements
-    title = workout_df["class_title"].iloc[0]
-    instructor = workout_df["instructor"].iloc[0]
-    avg_output = int(workout_df["Output (watts)"].mean())
-    total_output = int(workout_df["total_work"]["mean()"].iloc[0]) if "total_work" in workout_df else 0
-    date = pd.to_datetime(workout_df["time (s)"].index[0], unit='s').strftime('%Y-%m-%d')
+    # Music overlays
+    if "title" in workout_df.columns and "artist" in workout_df.columns:
+        songs = workout_df.loc[workout_df["title"].shift(-1) != workout_df["title"]].reset_index()[["index", "title", "artist"]]
+        songs["start"] = songs["index"].shift(1).fillna(0).astype(int)
+        alt_colours = ["#fce4ec", "#f3e5f5"]
+        for i, (_, row) in enumerate(songs.iterrows()):
+            ax.axvspan(row["start"], row["index"], alpha=0.1, color=alt_colours[i % 2])
 
-    # Annotation box
-    ax.text(0.01, 1.15, f"{title}", transform=ax.transAxes, fontsize=10, fontweight='bold', color='white')
-    ax.text(0.01, 1.05, f"Instructor: {instructor}", transform=ax.transAxes, fontsize=8, color='lightgray')
-    ax.text(0.01, -0.15, f"Avg Output: {avg_output} W     Total Output: {total_output} kj", transform=ax.transAxes, fontsize=9, color='white')
-    ax.text(0.99, -0.15, f"{date}", transform=ax.transAxes, fontsize=8, color='gray', ha='right')
+    ax.set_ylim(0, min(1.2 * config.FTP, 600))
+    ax.set_title("")
+    ax.set_ylabel("Output (watts)")
+    ax.set_xlabel("")
 
-    plt.subplots_adjust(top=0.85, bottom=0.25, left=0.05, right=0.95)
+    ax.get_legend().remove()
+    fig.subplots_adjust(top=0.85, right=0.95, bottom=0.2)
 
-    # Convert to image
     buf = BytesIO()
-    plt.savefig(buf, format="png", dpi=150, bbox_inches='tight', facecolor=fig.get_facecolor())
+    fig.canvas.print_png(buf)
     plt.close(fig)
-    buf.seek(0)
-    return Image.open(buf)
+
+    chart_img = Image.open(buf)
+    card.paste(chart_img, (100, 200))
+
+    # Draw class title
+    font = ImageFont.truetype("DejaVuSans-Bold.ttf", 60)
+    title_text = workout_df["class_title"].iloc[0]
+    draw.text((100, 50), textwrap.fill(title_text, 40), fill="black", font=font)
+
+    # Draw average/total output
+    avg_output = round(
+        workout_df["avg_watts"].mean() if "avg_watts" in workout_df.columns else
+        workout_df["Average Output (watts)"].mean() if "Average Output (watts)" in workout_df.columns else
+        0, 1
+    )
+
+    total_output = round(
+        workout_df["total_work"].mean() if "total_work" in workout_df.columns else
+        workout_df["Total Output (kJ)"].mean() if "Total Output (kJ)" in workout_df.columns else
+        0, 1
+    )
+
+    sub_font = ImageFont.truetype("DejaVuSans.ttf", 40)
+    draw.text((100, card_height - 120), f"Avg Output: {avg_output} watts", fill="black", font=sub_font)
+    draw.text((100, card_height - 60), f"Total Output: {total_output} kJ", fill="black", font=sub_font)
+
+    return card

@@ -10,15 +10,17 @@ import textwrap
 
 from itertools import cycle
 from matplotlib import cm
-from pelo_functions import generate_shareable_card
-from io import BytesIO
 
+from PIL import Image
+from io import BytesIO
 
 from pelo_functions import (
     get_ride_id,
     get_complete_workout,
-    get_recent_workouts
+    get_recent_workouts,
+    generate_share_card
 )
+
 import config
 
 st.set_page_config(layout="wide")
@@ -49,12 +51,23 @@ def peloton_login(session):
 
 
 def plot_metric_with_overlay(workout_df, metric, overlay):
-    import matplotlib.pyplot as plt
-    import seaborn as sns
-    from itertools import cycle
-    from matplotlib import cm
-
     fig, ax = plt.subplots(figsize=(20, 8))
+
+    # Dark theme setup
+    fig.patch.set_facecolor('#111111')  # full background
+    ax.set_facecolor('#111111')         # chart area background
+
+    # Set dark theme colours
+    plt.rcParams.update({
+        "axes.edgecolor": "white",
+        "axes.labelcolor": "white",
+        "xtick.color": "white",
+        "ytick.color": "white",
+        "text.color": "white",
+        "figure.facecolor": "#111111",
+        "legend.facecolor": "#222222",
+        "legend.edgecolor": "white",
+    })
     sns.lineplot(data=workout_df, x="time (s)", y=metric, ax=ax, label="Your " + metric)
 
     # --- PowerZone colours
@@ -161,11 +174,24 @@ def plot_metric_with_overlay(workout_df, metric, overlay):
                     textwrap.fill(str(row["display_name"]), 20),
                     ha='center', va='top', fontsize=8)
 
-    ax.set_ylabel(metric)
-    ax.set_xlabel("Time (s)")
+    ax.set_ylabel(metric, color='white')
+    ax.set_xlabel("Time (s)", color='white')
+
     title = workout_df.get("class_title", ["Workout"])[0]
     instructor = workout_df.get("instructor", ["Unknown"])[0]
-    ax.set_title(f"{title} — {instructor} — {metric} with {overlay.capitalize()} Overlay")
+    main_title = f"{title} — {instructor}"
+
+    raw_start = workout_df.get("start_time", [None])[0]
+    start_time = pd.to_datetime(raw_start, unit="s") if raw_start else None
+
+    username = workout_df.get("display_name", [None])[0] or workout_df.get("username", ["User"])[0]
+
+    if start_time:
+        subtitle = f"{start_time.strftime('%d %b %Y')} | {username}"
+    else:
+        subtitle = f"{username}"
+
+    ax.set_title(f"{main_title}\n{subtitle} — {metric} with {overlay.capitalize()} Overlay", loc="left")
 
     # --- Final layout tweaks
     ax.legend().remove()
@@ -219,11 +245,7 @@ if st.session_state.workout_df is not None:
     fig = plot_metric_with_overlay(st.session_state.workout_df, metric, overlay)
     st.pyplot(fig)
     # Generate and show shareable ride card
-    img = generate_shareable_card(st.session_state.workout_df)
-    st.image(img, caption="📸 Shareable Ride Card", use_column_width=True)
-
-    # Optional download button
-    buf = BytesIO()
-    img.save(buf, format="PNG")
-    st.download_button("💾 Download Share Card", data=buf.getvalue(), file_name="ride_card.png", mime="image/png")
+    st.subheader("📸 Shareable Ride Card")
+    share_card = generate_share_card(st.session_state.workout_df)
+    st.image(share_card, caption="Shareable Ride Card", use_container_width=True)
 
